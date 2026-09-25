@@ -72,7 +72,25 @@ def read_manifests(root: Path) -> dict[str, dict]:
 
 
 def build_tree(root: Path) -> list[str]:
-    entries: list[str] = []
+    # The committed tree, two levels deep. Walking the directory instead let a
+    # local checkout's caches, worktrees and ignored files crowd real entries out
+    # of the cap, so the same repo's evidence differed between a checkout and a
+    # clone. The filesystem walk remains for a repo with no commits.
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-tree", "-r", "-t", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0 and proc.stdout.strip():
+        entries: list[str] = []
+        for line in proc.stdout.splitlines():
+            meta, _, path = line.partition("\t")
+            if path.count("/") > 1:
+                continue
+            entries.append(path + ("/" if meta.split()[1] == "tree" else ""))
+            if len(entries) >= TREE_CAP:
+                break
+        return entries
+    entries = []
     for child in sorted(root.iterdir()):
         if child.name == ".git":
             continue

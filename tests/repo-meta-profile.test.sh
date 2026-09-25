@@ -63,6 +63,17 @@ n="$(jq -r '.recent_commits | length' "$P" 2>/dev/null)"
 jq -e '.tree | index("src/") != null' "$P" >/dev/null 2>&1 \
   || { echo "  tree missing src/"; fail=1; }
 
+# --- tree is the committed tree, not the working directory ------------------
+# A local checkout carries caches, worktrees and ignored settings a clone never
+# has. Walking the directory let those crowd real entries out of the 60-entry
+# cap, and made one repo's evidence depend on which machine profiled it.
+mkdir -p "$R/.pytest_cache/v" && : > "$R/.pytest_cache/v/x" && : > "$R/.DS_Store"
+python3 "$PROFILE" --repos "$TMP/repos.json" --out "$TMP/p-junk" >/dev/null 2>&1
+jq -e '[.tree[] | select(startswith(".pytest_cache") or . == ".DS_Store")] | length == 0' \
+  "$TMP/p-junk/me__widget.json" >/dev/null 2>&1 \
+  || { echo "  untracked files leaked into tree: $(jq -c '.tree' "$TMP/p-junk/me__widget.json" 2>/dev/null)"; fail=1; }
+rm -rf "$R/.pytest_cache" "$R/.DS_Store"
+
 # --- caching: an unchanged repo must not be re-profiled ---------------------
 before="$(jq -r '.sha' "$P")"
 touch "$TMP/marker"; sleep 1
