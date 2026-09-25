@@ -45,6 +45,18 @@ python3 "$SUGGEST" --validate-only --proposals "$TMP/ok.json" --taxonomy "$TAX" 
 [ "$(jq -r '.[0].status' "$TMP/vok.json" 2>/dev/null)" = "ok" ] \
   || { echo "  a clean proposal was rejected: $(jq -c '.[0].violations' "$TMP/vok.json" 2>/dev/null)"; fail=1; }
 
+# An agent-engine proposal the session agent has since filled in must be able to
+# pass. Forcing every engine=agent row to needs_revision made the documented
+# "fill it in, then --validate-only" loop impossible to finish.
+filled='[{"nwo":"me/a","current":{"description":null,"topics":[]},"proposed":{"description":"Folds laundry on a schedule","topics":["homelab","automation","python"]},"rationale":"r","engine":"agent","status":"needs_revision","violations":[]}]'
+printf '%s' "$filled" > "$TMP/filled.json"
+python3 "$SUGGEST" --validate-only --proposals "$TMP/filled.json" --taxonomy "$TAX" --out "$TMP/vfilled.json" >/dev/null 2>&1
+[ "$(jq -r '.[0].status' "$TMP/vfilled.json" 2>/dev/null)" = "ok" ] \
+  || { echo "  a filled-in agent proposal stayed needs_revision"; fail=1; }
+
+jq -e '.domain | index("wpm") != null' "$TMP/tax.json" >/dev/null 2>&1 \
+  || { echo "  wpm domain term missing"; fail=1; }
+
 long="$(python3 -c 'print("x"*400)')"
 check_violation "too long" \
   "[{\"nwo\":\"me/a\",\"current\":{\"description\":null,\"topics\":[]},\"proposed\":{\"description\":\"$long\",\"topics\":[\"homelab\",\"automation\"]},\"rationale\":\"r\",\"engine\":\"none\",\"status\":\"ok\",\"violations\":[]}]" \

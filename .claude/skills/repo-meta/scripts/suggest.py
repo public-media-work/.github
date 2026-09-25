@@ -113,40 +113,14 @@ def engine_agent(profile: dict, tax: dict[str, list[str]]) -> dict:
     return {"description": None, "topics": []}
 
 
-def build(profile: dict, tax: dict[str, list[str]], engine: str,
-          descriptions: str) -> dict:
-    if engine == "none":
-        proposed = engine_none(profile, tax)
-    elif engine == "agent":
-        proposed = engine_agent(profile, tax)
-    elif engine == "local":
-        from local_engine import draft  # Task 5
-        proposed = draft(profile, tax)
-    else:
-        raise SystemExit(f"unknown engine: {engine}")
-
-    if descriptions == "off":
-        proposed["description"] = None
-    elif descriptions == "fill-empty" and profile.get("current", {}).get("description"):
-        proposed["description"] = None
-
-    proposal = {
-        "nwo": profile["nwo"],
-        "current": profile.get("current", {"description": None, "topics": []}),
-        "proposed": proposed,
-        "rationale": proposed.pop("rationale", ""),
-        "engine": engine,
-        "status": "ok",
-        "violations": [],
-    }
-    return finalize(proposal, tax, engine)
-
-
 def finalize(proposal: dict, tax: dict[str, list[str]], engine: str) -> dict:
     violations = validate(proposal, tax)
     proposal["violations"] = violations
     hard = [v for v in violations if not v.startswith("description_over_target")]
-    proposal["status"] = "needs_revision" if (hard or engine == "agent") else "ok"
+    # No special case for engine == "agent": an unfilled agent placeholder has no
+    # topics, so topic_count already marks it needs_revision, and one the agent
+    # has filled in must be able to pass on --validate-only.
+    proposal["status"] = "needs_revision" if hard else "ok"
     return proposal
 
 
@@ -155,12 +129,15 @@ def main() -> int:
     ap.add_argument("--profiles")
     ap.add_argument("--taxonomy", required=True)
     ap.add_argument("--out")
-    ap.add_argument("--engine", choices=("local", "agent", "none"), default="local")
+    # Default: local when REPO_META_LOCAL_LLM names a local_llm.py, agent otherwise.
+    ap.add_argument("--engine", choices=("local", "agent", "none"), default=None)
     ap.add_argument("--descriptions", choices=("improve", "fill-empty", "off"),
                     default="improve")
     ap.add_argument("--dump-taxonomy", action="store_true")
     ap.add_argument("--validate-only", action="store_true")
     ap.add_argument("--proposals", help="with --validate-only: file to re-check")
+    ap.add_argument("--local-llm", default=None,
+                    help="path to local_llm.py (default: $REPO_META_LOCAL_LLM)")
     args = ap.parse_args()
 
     tax = load_taxonomy(Path(args.taxonomy))
@@ -182,12 +159,45 @@ def main() -> int:
     if not args.profiles or not args.out:
         raise SystemExit("need --profiles and --out")
 
+    sys.path.insert(0, str(Path(__file__).parent))
+    from local_engine import EngineUnavailable, configured_local_llm, draft
+
+    llm = args.local_llm or configured_local_llm()
+    engine = args.engine or ("local" if llm else "agent")
     proposals = []
     for path in sorted(Path(args.profiles).glob("*.json")):
         if path.name == "_errors.json":
             continue
-        proposals.append(build(json.loads(path.read_text()), tax,
-                               args.engine, args.descriptions))
+        profile = json.loads(path.read_text())
+        if engine == "local":
+            try:
+                proposed = draft(profile, tax, llm)
+            except EngineUnavailable as exc:
+                print(f"local engine unavailable ({exc}); falling back to the "
+                      f"agent engine for the rest of this run", file=sys.stderr)
+                engine = "agent"
+                proposed = engine_agent(profile, tax)
+        elif engine == "agent":
+            proposed = engine_agent(profile, tax)
+        else:
+            proposed = engine_none(profile, tax)
+
+        if args.descriptions == "off":
+            proposed["description"] = None
+        elif (args.descriptions == "fill-empty"
+              and profile.get("current", {}).get("description")):
+            proposed["description"] = None
+
+        proposals.append(finalize({
+            "nwo": profile["nwo"],
+            "current": profile.get("current", {"description": None, "topics": []}),
+            "proposed": {"description": proposed.get("description"),
+                         "topics": proposed.get("topics") or []},
+            "rationale": proposed.get("rationale", ""),
+            "engine": engine,
+            "status": "ok",
+            "violations": [],
+        }, tax, engine))
 
     Path(args.out).write_text(json.dumps(proposals, indent=2) + "\n")
     bad = sum(1 for p in proposals if p["status"] != "ok")
