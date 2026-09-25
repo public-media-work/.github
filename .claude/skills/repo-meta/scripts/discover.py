@@ -138,6 +138,10 @@ def row(raw: dict, checkouts: dict[str, str]) -> dict:
         # multiplies the API budget by the repo count for a signal that only
         # refines wording.
         "languages": ({raw["language"]: 1} if raw.get("language") else {}),
+        # Read by refresh-org-profile's digest for its pushed-since-refresh and
+        # visibility-changed flags; the list endpoint already returns both.
+        "visibility": raw.get("visibility"),
+        "pushed_at": raw.get("pushed_at"),
     }
 
 

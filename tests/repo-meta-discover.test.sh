@@ -31,7 +31,7 @@ chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
 
 cat > "$TMP/user.json" <<'JSON'
-[{"full_name":"me/live","archived":false,"fork":false,"description":"a thing","topics":["automation"],"default_branch":"main","language":"Python"},
+[{"full_name":"me/live","archived":false,"fork":false,"description":"a thing","topics":["automation"],"default_branch":"main","language":"Python","visibility":"private","pushed_at":"2026-09-01T12:00:00Z"},
  {"full_name":"me/dead","archived":true,"fork":false,"description":null,"topics":[],"default_branch":"main","language":"Python"},
  {"full_name":"me/borrowed","archived":false,"fork":true,"description":null,"topics":[],"default_branch":"main","language":"Python"}]
 JSON
@@ -64,6 +64,13 @@ case "$lp" in
   *Backups*) echo "  local_path resolved into Backups/, which must be excluded"; fail=1 ;;
   *) echo "  expected local_path for me/live, got '$lp'"; fail=1 ;;
 esac
+
+# visibility and pushed_at carry through: refresh-org-profile's digest reads
+# them for its pushed-since-refresh and visibility-changed flags.
+jq -e '.[] | select(.nwo=="me/live") | .visibility == "private" and .pushed_at == "2026-09-01T12:00:00Z"' \
+  "$OUT" >/dev/null 2>&1 || { echo "  visibility/pushed_at not carried into repos.json"; fail=1; }
+jq -e '.[] | select(.nwo=="acme/widget") | has("visibility") and has("pushed_at")' \
+  "$OUT" >/dev/null 2>&1 || { echo "  rows must always carry visibility and pushed_at keys"; fail=1; }
 
 nl="$(jq -r '.[] | select(.nwo=="acme/widget") | .local_path' "$OUT" 2>/dev/null)"
 [ "$nl" = "null" ] || { echo "  acme/widget has no checkout; expected null, got '$nl'"; fail=1; }
