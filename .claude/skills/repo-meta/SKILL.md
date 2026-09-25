@@ -9,8 +9,8 @@ Propose accurate, brief descriptions and taxonomy-conformant topics for every ac
 repo in an org, grounded in each codebase, and write them back once a human has
 approved them.
 
-> **Provenance.** Pulled from skill-ops `docs/superpowers/plans/2026-08-24-repo-meta.md`
-> (spec `docs/superpowers/specs/2026-08-24-repo-meta-design.md`) on 2026-09-24. To be
+> **Provenance.** Pulled from skill-ops docs/superpowers/plans/2026-08-24-repo-meta.md
+> (spec docs/superpowers/specs/2026-08-24-repo-meta-design.md) on 2026-09-24. To be
 > bundled with `refresh-org-profile` after `skill-ops:graduate-skill`. It supersedes the
 > `tag-repos` command, which covered topics only, reached only local checkouts, and
 > re-derived everything by hand on every run.
@@ -37,6 +37,7 @@ discover.py → repos.json → profile.py → profiles/*.json → suggest.py →
                                                             approvals.json → apply.py
 ```
 
+<!-- portability-ok: the XDG state dir, not a file inside this skill -->
 State lives in `${XDG_STATE_HOME:-~/.local/state}/repo-meta/`. Nothing is written into
 the repo you are standing in.
 
@@ -46,8 +47,10 @@ The standard invocation here is **`--org public-media-work`**: only that org's r
 not your personal ones.
 
 ```bash
-S="${CLAUDE_SKILL_DIR}/scripts"
-TAX="${CLAUDE_SKILL_DIR}/references/taxonomy.md"
+D="${CLAUDE_SKILL_DIR}"
+S="$D/scripts"
+TAX="$D/references/taxonomy.md"
+# portability-ok: the XDG state dir, not a file inside this skill
 ST="${XDG_STATE_HOME:-$HOME/.local/state}/repo-meta"
 
 python3 "$S/discover.py" --org public-media-work --out "$ST/repos.json"
@@ -64,7 +67,7 @@ Useful flags:
 | `--repo owner/name` | discover | one repo |
 | `--only-local` | discover | skip repos with no local checkout (no cloning) |
 | `--include-archived`, `--include-forks` | discover | widen the default filter |
-| `--workspace dir` | discover | where to look for local checkouts; default `~/Developer` |
+| `--workspace dir` | discover | where to look for local checkouts; default `~/Developer` <!-- portability-ok: documented default, overridden by --workspace --> |
 | `--force` | profile | ignore the sha cache |
 | `--engine local\|agent\|none` | suggest | who writes the copy; see below |
 | `--descriptions improve\|fill-empty\|off` | suggest | default `improve` |

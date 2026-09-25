@@ -1,7 +1,7 @@
 # Topic taxonomy
 
 Curated vocabulary, ported from the "Taxonomy Reference" phase of skill-ops
-`triage/commands/the-lodge/tag-repos.md` when repo-meta superseded it. One
+triage/commands/the-lodge/tag-repos.md when repo-meta superseded it. One
 initiative-specific domain term was generalized to `wpm`; everything else is
 unchanged. Prefer an existing term over inventing one.
 
