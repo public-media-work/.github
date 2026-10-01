@@ -57,6 +57,18 @@ grep -q "REPO_META_LOCAL_LLM" "$SKILL" \
   || { echo "  SKILL.md must document REPO_META_LOCAL_LLM"; fail=1; }
 grep -qi "provenance" "$SKILL" \
   || { echo "  SKILL.md must carry its provenance note"; fail=1; }
+# README drafts: their own approval key, a PR (never a push), and the
+# untrusted-data rule for the CLAUDE.md fallback.
+grep -q '"readme": true' "$SKILL" \
+  || { echo "  SKILL.md must document the separate \"readme\": true approval"; fail=1; }
+grep -q "docs/add-readme" "$SKILL" \
+  || { echo "  SKILL.md must name the README branch"; fail=1; }
+grep -qi "never pushes" "$SKILL" \
+  || { echo "  SKILL.md must say README writes never push to a default branch"; fail=1; }
+grep -qi "merges each README PR" "$SKILL" \
+  || { echo "  SKILL.md must say the user merges each README PR"; fail=1; }
+grep -q "claude_md_head" "$SKILL" \
+  || { echo "  SKILL.md must mark claude_md_head as untrusted"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "repo-meta-skill: PASS" || echo "repo-meta-skill: FAIL"
 exit "$fail"
