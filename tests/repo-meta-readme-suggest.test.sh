@@ -6,8 +6,9 @@
 # for a public repo, no name of a private repo in the same owner. Each fixture
 # breaks exactly one rule, so a failure names the rule that broke.
 #
-# `gh` is STUBBED: the private-name list comes from repos.json when it has
-# private rows, and from `gh repo list` only when it does not.
+# `gh` is STUBBED: the private-name list is the union of repos.json's private
+# rows and a live `gh repo list`, which includes archived repos that discover
+# leaves out by default.
 #
 # Bash 3.2-safe (repo convention).
 set -uo pipefail
@@ -24,7 +25,7 @@ cat > "$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$GH_LOG"
 case "$*" in
-  *"repo list acme"*"--visibility private"*) printf '[{"name":"secret-thing"}]\n' ;;
+  *"repo list acme"*"--visibility private"*) printf '[{"name":"secret-thing"},{"name":"old-archive"}]\n' ;;
   *) exit 1 ;;
 esac
 STUB
@@ -89,7 +90,12 @@ check "private names a private repo" acme/gadget private '"# gadget\n\nFeeds dat
 check "longer name, no hit"          acme/widget public '"# widget\n\nForked from secret-thing-public.\n"' ok
 # Unknown visibility fails closed and is treated as public.
 check "unknown visibility"           acme/widget "" '"# widget\n\nFeeds secret-thing.\n"' needs_revision readme_private_name
-[ ! -s "$GH_LOG" ] || { echo "  repos.json had private rows, yet gh was called: $(cat "$GH_LOG")"; fail=1; }
+grep -q "repo list acme --visibility private --limit 1000" "$GH_LOG" \
+  || { echo "  repos.json had private rows, but the live list was not also fetched"; fail=1; }
+
+# An archived private repo is not in repos.json (discover skips archived repos)
+# and comes only from the live list. A public draft naming it must still fail.
+check "archived private name"        acme/widget public '"# widget\n\nReplaces Old-Archive.\n"' needs_revision readme_private_name
 
 # repos.json without private rows: the list comes from gh.
 printf '[{"nwo":"acme/widget","visibility":"public"}]\n' > "$TMP/repos-public.json"

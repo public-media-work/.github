@@ -23,7 +23,7 @@ notfound() { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
 case "$*" in
   "api repos/acme/widget")
     printf '{"default_branch":"trunk","visibility":"%s"}\n' "${STUB_VISIBILITY:-private}" ;;
-  "repo list acme --visibility private"*) printf '[{"name":"secret-thing"}]\n' ;;
+  "repo list acme --visibility private --limit 1000"*) printf '[{"name":"secret-thing"},{"name":"old-archive"}]\n' ;;
   "api repos/acme/widget/readme?ref=trunk")
     [ -n "${STUB_README:-}" ] && { echo '{"name":"README.md"}'; exit 0; }; notfound ;;
   "api repos/acme/widget/git/ref/heads/docs/add-readme")
@@ -127,6 +127,16 @@ STUB_VISIBILITY=public python3 "$APPLY" --approvals "$TMP/approvals.json" --stat
   > "$TMP/out.txt" 2>&1
 grep -q "git/refs\|contents/README.md\|pr create" "$GH_LOG" \
   && { echo "  a public README naming a private repo was written"; fail=1; }
+
+# --- public repo: an archived private name from the live list stops it too ---
+row true '# widget\n\nReplaces old-archive.\n'
+: > "$GH_LOG"
+STUB_VISIBILITY=public python3 "$APPLY" --approvals "$TMP/approvals.json" --state-dir "$TMP/s-arch" --commit \
+  > "$TMP/out.txt" 2>&1
+grep -q "repo list acme --visibility private --limit 1000" "$GH_LOG" \
+  || { echo "  live private list not fetched with --limit 1000"; fail=1; }
+grep -q "git/refs\|contents/README.md\|pr create" "$GH_LOG" \
+  && { echo "  a public README naming an archived private repo was written"; fail=1; }
 
 # --- an invalid approved README is refused before any gh call -----------------
 row true "no heading, key $(printf '%s-%s' sk abcdefghijklmnop1234)\\n"

@@ -62,9 +62,11 @@ python3 "$S/suggest.py"  --profiles "$ST/profiles" --repos "$ST/repos.json" \
                          --taxonomy "$TAX" --out "$ST/proposals.json"
 ```
 
-`--repos` gives `suggest.py` each repo's visibility and the owner's private repo names
-for the README checks below. Without it, visibility is unknown (treated as public) and
-the private names come from `gh repo list`.
+`--repos` gives `suggest.py` each repo's visibility for the README checks below; without
+it, visibility is unknown and treated as public. The private repo names are always the
+union of `repos.json`'s private rows and a live `gh repo list --visibility private`,
+which includes the archived repos `discover.py` skips. If gh cannot answer, public
+drafts fail closed.
 
 Useful flags:
 

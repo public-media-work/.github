@@ -90,11 +90,16 @@ def readme_violations(text: str, private_names: list[str] | None,
 
 
 def fetch_private_names(owner: str) -> list[str] | None:
-    """Every private repo name in owner, from gh. None when gh cannot say."""
+    """Every private repo name in owner, from gh. None when gh cannot say.
+
+    gh repo list includes archived repos unless --no-archived is passed, which
+    is the point: discover.py skips archived repos, so repos.json alone misses
+    them.
+    """
     try:
         proc = subprocess.run(
             ["gh", "repo", "list", owner, "--visibility", "private",
-             "--limit", "200", "--json", "name"],
+             "--limit", "1000", "--json", "name"],
             capture_output=True, text=True, timeout=60,
         )
     except (subprocess.TimeoutExpired, OSError):
@@ -108,7 +113,8 @@ def fetch_private_names(owner: str) -> list[str] | None:
 
 
 class PrivateNames:
-    """Private repo names per owner: repos.json when it lists any, else gh."""
+    """Private repo names per owner: repos.json's private rows plus the live gh
+    list, always both. None (fail closed) when gh cannot say."""
 
     def __init__(self, repos: list[dict] | None):
         self.repos = repos or []
@@ -125,7 +131,8 @@ class PrivateNames:
             rows = [r["nwo"].split("/", 1)[1] for r in self.repos
                     if r.get("nwo", "").split("/")[0] == owner
                     and str(r.get("visibility") or "").lower() == "private"]
-            self.cache[owner] = rows if rows else fetch_private_names(owner)
+            live = fetch_private_names(owner)
+            self.cache[owner] = None if live is None else sorted(set(rows) | set(live))
         return self.cache[owner]
 
 
