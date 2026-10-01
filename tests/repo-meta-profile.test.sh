@@ -63,6 +63,41 @@ n="$(jq -r '.recent_commits | length' "$P" 2>/dev/null)"
 jq -e '.tree | index("src/") != null' "$P" >/dev/null 2>&1 \
   || { echo "  tree missing src/"; fail=1; }
 
+jq -e '.has_readme == true and .claude_md_head == null' "$P" >/dev/null 2>&1 \
+  || { echo "  a repo with a README needs has_readme=true and claude_md_head=null"; fail=1; }
+
+# --- CLAUDE.md fallback ------------------------------------------------------
+# Many repos carry a root CLAUDE.md and no README. CLAUDE.md is written as
+# instructions to agents, so it is read only when there is no README, and kept
+# in its own field so SKILL.md can mark it untrusted.
+B="$TMP/both"
+mkdir -p "$B"
+printf '# both\n\nThe README text.\n' > "$B/README.md"
+printf '# CLAUDE.md\n\nAgent notes for both.\n' > "$B/CLAUDE.md"
+git -C "$B" init -q; git -C "$B" add -A; git -C "$B" commit -qm "init"
+C="$TMP/agentonly"
+mkdir -p "$C"
+python3 -c 'print("# CLAUDE.md\n\nRotates the widget keys nightly.\n" + "x" * 3000)' > "$C/CLAUDE.md"
+git -C "$C" init -q; git -C "$C" add -A; git -C "$C" commit -qm "init"
+cat > "$TMP/fallback.json" <<JSON
+[{"nwo":"acme/both","archived":false,"fork":false,"local_path":"$B",
+  "description":null,"topics":[],"default_branch":"main","languages":{}},
+ {"nwo":"acme/agentonly","archived":false,"fork":false,"local_path":"$C",
+  "description":null,"topics":[],"default_branch":"main","languages":{}}]
+JSON
+python3 "$PROFILE" --repos "$TMP/fallback.json" --out "$TMP/pf" >/dev/null 2>&1
+PB="$TMP/pf/acme__both.json"
+jq -e '.has_readme == true and (.readme_head | contains("The README text")) and .claude_md_head == null' \
+  "$PB" >/dev/null 2>&1 \
+  || { echo "  README must win over CLAUDE.md: $(jq -c '{has_readme,claude_md_head}' "$PB" 2>/dev/null)"; fail=1; }
+PC="$TMP/pf/acme__agentonly.json"
+jq -e '.has_readme == false and .readme_head == null' "$PC" >/dev/null 2>&1 \
+  || { echo "  no README: expected has_readme=false, readme_head=null"; fail=1; }
+jq -e '.claude_md_head | contains("Rotates the widget keys")' "$PC" >/dev/null 2>&1 \
+  || { echo "  no README: claude_md_head not read from CLAUDE.md"; fail=1; }
+[ "$(jq -r '.claude_md_head | length' "$PC" 2>/dev/null)" = "2000" ] \
+  || { echo "  claude_md_head must be capped at 2000 chars"; fail=1; }
+
 # --- tree is the committed tree, not the working directory ------------------
 # A local checkout carries caches, worktrees and ignored settings a clone never
 # has. Walking the directory let those crowd real entries out of the 60-entry

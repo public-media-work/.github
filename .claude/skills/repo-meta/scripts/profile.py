@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 README_CAP = 2000
+CLAUDE_MD_CAP = 2000
 TREE_CAP = 60
 COMMIT_CAP = 10
 MANIFESTS = ("package.json", "pyproject.toml", "Cargo.toml", "go.mod",
@@ -34,14 +35,20 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
-def read_readme(root: Path) -> str:
+def find_readme(root: Path) -> Path | None:
     for p in sorted(root.glob("README*")):
         if p.is_file():
-            try:
-                return p.read_text(errors="replace")[:README_CAP]
-            except OSError:
-                continue
-    return ""
+            return p
+    return None
+
+
+def read_head(path: Path | None, cap: int) -> str | None:
+    if path is None or not path.is_file():
+        return None
+    try:
+        return path.read_text(errors="replace")[:cap]
+    except OSError:
+        return None
 
 
 def read_manifests(root: Path) -> dict[str, dict]:
@@ -112,11 +119,18 @@ def detect_signals(root: Path) -> dict[str, bool]:
 
 
 def profile_root(root: Path, repo: dict, source: str) -> dict:
+    readme = find_readme(root)
     return {
         "nwo": repo["nwo"],
         "source": source,
         "sha": git(root, "rev-parse", "HEAD") or None,
-        "readme_head": read_readme(root),
+        "has_readme": readme is not None,
+        "readme_head": read_head(readme, README_CAP),
+        # Only when there is no README. CLAUDE.md is written as instructions to
+        # agents, so it is evidence of what the repo does and nothing more; a
+        # README, when present, is the better evidence and the smaller surface.
+        "claude_md_head": (read_head(root / "CLAUDE.md", CLAUDE_MD_CAP)
+                           if readme is None else None),
         "manifests": read_manifests(root),
         "tree": build_tree(root),
         "languages": repo.get("languages") or {},

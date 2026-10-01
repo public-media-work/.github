@@ -87,7 +87,8 @@ def validate(proposal: dict, tax: dict[str, list[str]]) -> list[str]:
 def engine_none(profile: dict, tax: dict[str, list[str]]) -> dict:
     """Deterministic topic matching. Never proposes a description."""
     haystack = " ".join([
-        profile.get("readme_head", ""),
+        profile.get("readme_head") or "",
+        profile.get("claude_md_head") or "",
         " ".join(profile.get("tree", [])),
         " ".join(profile.get("recent_commits", [])),
         profile.get("nwo", ""),

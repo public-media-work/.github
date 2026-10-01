@@ -61,7 +61,7 @@ def _prompt(profile: dict, tax: dict[str, list[str]]) -> str:
     return json.dumps({
         "repo": profile["nwo"],
         "current": profile.get("current"),
-        "readme_head": profile.get("readme_head", "")[:1500],
+        "readme_head": (profile.get("readme_head") or "")[:1500],
         "manifests": profile.get("manifests", {}),
         "tree": profile.get("tree", [])[:40],
         "languages": profile.get("languages", {}),
