@@ -49,7 +49,9 @@ rc=$?
 
 # --- --commit issues the right calls ----------------------------------------
 : > "$GH_LOG"
-python3 "$APPLY" --approvals "$TMP/approvals.json" --state-dir "$TMP/state" --commit >/dev/null 2>&1
+# Its own state dir: the dry run above left a log in $TMP/state, and which log
+# sorts first depended on whether the two runs fell in the same second.
+python3 "$APPLY" --approvals "$TMP/approvals.json" --state-dir "$TMP/state-commit" --commit >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] || { echo "  --commit exited $rc; a 403 on one repo must not be fatal"; fail=1; }
 
@@ -65,7 +67,7 @@ grep -q -- "me/b --description" "$GH_LOG" \
   && { echo "  a null description must not be written"; fail=1; }
 
 # --- the run log records the failure ----------------------------------------
-LOG="$(ls "$TMP/state/runs/"*.jsonl 2>/dev/null | head -1)"
+LOG="$(ls "$TMP/state-commit/runs/"*.jsonl 2>/dev/null | head -1)"
 [ -n "$LOG" ] || { echo "  no run log written"; fail=1; }
 grep -q '"nwo": *"org/deny"' "$LOG" 2>/dev/null \
   || { echo "  denied repo missing from run log"; fail=1; }
