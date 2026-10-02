@@ -8,8 +8,6 @@ Tools for public media institutions, built by [@mriechers](https://github.com/mr
 | Repository | Description | Language | Last push |
 |---|---|---|---|
 | [cardigan](https://github.com/public-media-work/cardigan) | A tool that combines LLM-driven automated transcript and keyword generation with an agent-assistant editing workflow for metadata needed for PBS Media Manager content. | Python | 2026-09-25 |
-| [ai-editorial-assistant](https://github.com/public-media-work/ai-editorial-assistant) | Using a text file created from subtitles or a transcript of a video, brainstorm, edit and analyze metadata (titles, descriptions and keywords) for PBS video streaming platforms, and output formatted transcripts on request. |  | 2026-09-15 |
-| [pbswi-claude-skills](https://github.com/public-media-work/pbswi-claude-skills) | Proven Claude workflows specific to digital production work at PBS Wisconsin. Vetted and tested by us, usable to anyone in the public media ecosystem! | Python | 2026-09-15 |
 <!-- END:public-repos -->
 
 ## Private work
