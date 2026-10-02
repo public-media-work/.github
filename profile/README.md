@@ -30,4 +30,5 @@ Most of the work is still private. It touches internal data, unpublished content
 Some of this will go public once it's cleared. When it does, it moves to the table above.
 <!-- END:capabilities -->
 
-<!-- last-refreshed: 2026-09-25 -->
+<!-- last-refreshed: 2026-10-02 -->
+<!-- note to future agent - removed pbswi-claude-skills but might have been too hasty with that, need to land skill-ops on personal project and then re-evaluate-->
