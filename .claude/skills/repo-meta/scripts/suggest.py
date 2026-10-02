@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,119 @@ TOPIC_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,49}$")
 BUZZWORDS = ("powerful", "seamless", "robust", "cutting-edge", "leverages",
              "comprehensive solution", "best-in-class", "next-generation")
 SECTIONS = ("domain", "function", "technology")
+
+# README drafts, for repos that have none. The draft lands as a PR in the target
+# repo, which may be public, so these checks lean towards refusing.
+README_MAX_LINES = 120
+SECRET_SHAPES = {
+    "sk": re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"),
+    "ghp": re.compile(r"\bghp_[A-Za-z0-9]{8,}"),
+    "slack": re.compile(r"\bxox[bap]-[A-Za-z0-9-]{8,}"),
+    "aws": re.compile(r"\bAKIA[0-9A-Z]{12,}"),
+    "private_key": re.compile(r"BEGIN [A-Z ]*PRIVATE KEY"),
+}
+# A macOS or Linux home directory, or a tilde path.
+PERSONAL_PATH = re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+|~/")
+HEADING = re.compile(r"^#{1,6}\s")
+# Lines that are not a "what it does" sentence: fences, tables, lists, images,
+# badges, HTML.
+NOT_PROSE = re.compile(r"^(```|~~~|\||[-*+]\s|\d+\.\s|!\[|\[!\[|<)")
+
+
+def name_pattern(name: str) -> re.Pattern:
+    # Hyphen-aware: "secret-thing" must not match inside "secret-thing-public",
+    # and a short private name must not hide inside a longer public one.
+    return re.compile(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_-])",
+                      re.IGNORECASE)
+
+
+def readme_violations(text: str, private_names: list[str] | None,
+                      check_private: bool) -> list[str]:
+    """Deterministic checks on a README draft; empty means clean.
+
+    private_names is None when the list could not be had; with check_private
+    that fails closed rather than passing a public draft unchecked.
+    """
+    v: list[str] = []
+    if not text.strip():
+        return ["readme_empty"]
+    lines = text.strip("\n").splitlines()
+    if len(lines) > README_MAX_LINES:
+        v.append(f"readme_too_long:{len(lines)}")
+    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+    if first is None or not re.match(r"^#\s+\S", lines[first]):
+        v.append("readme_no_h1")
+    else:
+        summary = False
+        for ln in lines[first + 1:]:
+            stripped = ln.strip()
+            if HEADING.match(stripped):
+                break
+            if stripped and not NOT_PROSE.match(stripped):
+                summary = True
+                break
+        if not summary:
+            v.append("readme_no_summary")
+    for kind, rx in SECRET_SHAPES.items():
+        if rx.search(text):
+            v.append(f"readme_secret:{kind}")
+    if PERSONAL_PATH.search(text):
+        v.append("readme_personal_path")
+    if check_private:
+        if private_names is None:
+            v.append("readme_private_names_unchecked")
+        else:
+            for name in private_names:
+                if name_pattern(name).search(text):
+                    v.append(f"readme_private_name:{name}")
+    return v
+
+
+def fetch_private_names(owner: str) -> list[str] | None:
+    """Every private repo name in owner, from gh. None when gh cannot say.
+
+    gh repo list includes archived repos unless --no-archived is passed, which
+    is the point: discover.py skips archived repos, so repos.json alone misses
+    them.
+    """
+    try:
+        proc = subprocess.run(
+            ["gh", "repo", "list", owner, "--visibility", "private",
+             "--limit", "1000", "--json", "name"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return [r["name"] for r in json.loads(proc.stdout or "[]") if r.get("name")]
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return None
+
+
+class PrivateNames:
+    """Private repo names per owner: repos.json's private rows plus the live gh
+    list, always both. None (fail closed) when gh cannot say."""
+
+    def __init__(self, repos: list[dict] | None):
+        self.repos = repos or []
+        self.cache: dict[str, list[str] | None] = {}
+
+    def visibility(self, nwo: str) -> str | None:
+        for row in self.repos:
+            if row.get("nwo") == nwo:
+                return row.get("visibility")
+        return None
+
+    def for_owner(self, owner: str) -> list[str] | None:
+        if owner not in self.cache:
+            rows = [r["nwo"].split("/", 1)[1] for r in self.repos
+                    if r.get("nwo", "").split("/")[0] == owner
+                    and str(r.get("visibility") or "").lower() == "private"]
+            live = fetch_private_names(owner)
+            self.cache[owner] = None if live is None else sorted(set(rows) | set(live))
+        return self.cache[owner]
 
 
 def load_taxonomy(path: Path) -> dict[str, list[str]]:
@@ -39,7 +153,8 @@ def load_taxonomy(path: Path) -> dict[str, list[str]]:
     return tax
 
 
-def validate(proposal: dict, tax: dict[str, list[str]]) -> list[str]:
+def validate(proposal: dict, tax: dict[str, list[str]],
+             names: PrivateNames | None = None) -> list[str]:
     """Return violation codes; empty means clean."""
     v: list[str] = []
     proposed = proposal.get("proposed") or {}
@@ -81,6 +196,23 @@ def validate(proposal: dict, tax: dict[str, list[str]]) -> list[str]:
             v.append("no_domain_term")
         if not any(t in tax["function"] for t in topics):
             v.append("no_function_term")
+
+    readme = proposed.get("readme")
+    if readme is not None:
+        # Only a MISSING README is ever drafted; an existing one is never
+        # rewritten. Anything but an explicit has_readme=false is refused.
+        if proposal.get("has_readme") is not False:
+            v.append("readme_exists")
+        if not isinstance(readme, str):
+            v.append("readme_not_text")
+        else:
+            nwo = proposal.get("nwo", "")
+            names = names or PrivateNames(None)
+            vis = proposal.get("visibility") or names.visibility(nwo)
+            # Unknown visibility is treated as public: fail closed.
+            public = str(vis or "public").lower() != "private"
+            private = names.for_owner(nwo.split("/")[0]) if public else []
+            v += readme_violations(readme, private, public)
     return v
 
 
@@ -111,11 +243,12 @@ def engine_none(profile: dict, tax: dict[str, list[str]]) -> dict:
 
 def engine_agent(profile: dict, tax: dict[str, list[str]]) -> dict:
     """Emit an empty proposal for the session agent to fill at the gate."""
-    return {"description": None, "topics": []}
+    return {"description": None, "topics": [], "readme": None}
 
 
-def finalize(proposal: dict, tax: dict[str, list[str]], engine: str) -> dict:
-    violations = validate(proposal, tax)
+def finalize(proposal: dict, tax: dict[str, list[str]], engine: str,
+             names: PrivateNames | None = None) -> dict:
+    violations = validate(proposal, tax, names)
     proposal["violations"] = violations
     hard = [v for v in violations if not v.startswith("description_over_target")]
     # No special case for engine == "agent": an unfilled agent placeholder has no
@@ -139,9 +272,13 @@ def main() -> int:
     ap.add_argument("--proposals", help="with --validate-only: file to re-check")
     ap.add_argument("--local-llm", default=None,
                     help="path to local_llm.py (default: $REPO_META_LOCAL_LLM)")
+    ap.add_argument("--repos", default=None,
+                    help="repos.json from discover.py: visibility and private names "
+                         "for README checks (without it, gh is asked)")
     args = ap.parse_args()
 
     tax = load_taxonomy(Path(args.taxonomy))
+    names = PrivateNames(json.loads(Path(args.repos).read_text()) if args.repos else None)
 
     if args.dump_taxonomy:
         print(json.dumps(tax, indent=2))
@@ -151,7 +288,7 @@ def main() -> int:
         if not args.proposals or not args.out:
             raise SystemExit("--validate-only needs --proposals and --out")
         proposals = json.loads(Path(args.proposals).read_text())
-        rechecked = [finalize(p, tax, p.get("engine", "none")) for p in proposals]
+        rechecked = [finalize(p, tax, p.get("engine", "none"), names) for p in proposals]
         Path(args.out).write_text(json.dumps(rechecked, indent=2) + "\n")
         bad = sum(1 for p in rechecked if p["status"] != "ok")
         print(f"validated {len(rechecked)} proposals, {bad} need revision")
@@ -189,16 +326,23 @@ def main() -> int:
               and profile.get("current", {}).get("description")):
             proposed["description"] = None
 
+        slot = {"description": proposed.get("description"),
+                "topics": proposed.get("topics") or []}
+        # A README slot only where the profile says there is none. Only the agent
+        # engine fills it; every other engine leaves it null, which proposes nothing.
+        if profile.get("has_readme") is False:
+            slot["readme"] = proposed.get("readme")
         proposals.append(finalize({
             "nwo": profile["nwo"],
+            "visibility": names.visibility(profile["nwo"]) or profile.get("visibility"),
+            "has_readme": profile.get("has_readme"),
             "current": profile.get("current", {"description": None, "topics": []}),
-            "proposed": {"description": proposed.get("description"),
-                         "topics": proposed.get("topics") or []},
+            "proposed": slot,
             "rationale": proposed.get("rationale", ""),
             "engine": engine,
             "status": "ok",
             "violations": [],
-        }, tax, engine))
+        }, tax, engine, names))
 
     Path(args.out).write_text(json.dumps(proposals, indent=2) + "\n")
     bad = sum(1 for p in proposals if p["status"] != "ok")
